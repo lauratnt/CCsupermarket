@@ -1,0 +1,169 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supermarket Page</title>
+  <link rel="stylesheet" type="text/css" href="/public/STYLE/style-WelcomeSuper.css">
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+    }
+    
+    .container {
+      max-width: 600px;
+      margin: 50px auto;
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    #welcomeTitle {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    
+    h1 {
+      color: #557135;
+
+    }
+
+
+    #actionButtons {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 20px;
+    }
+
+    form {
+      display: grid;
+      gap: 10px;
+    }
+
+    label {
+      font-weight: bold;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+
+    button {
+      background-color: #F5A728;
+      color: #fff;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #F5A728;
+    }
+
+    .dropdown-item {
+    background-color: #738D52;
+    color: #fff;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .dropdown-items {
+    background-color: #CB4B18;
+    color: #fff;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+     .dropdown-item:hover {
+    background-color: #45a049;
+  }
+
+    a {
+      color: #FF9897;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .modal {
+      background-color: #f1a9c1;
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 300px;
+      max-width: calc(100% - 40px);
+      max-height: calc(50% - 40px);
+      overflow-y: auto;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      box-sizing: border-box;
+    }
+
+    .small-modal {
+      width: 300px;
+    }
+
+    .modal-content {
+      max-height: calc(100% - 500px);
+    }
+
+    .close-icon {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      cursor: pointer;
+      font-size: 20px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h3><!--#welcome-user--></h3>
+    <div id="actionButtons">
+      <button id="openModalButton">Add Products</button>
+      <a class="dropdown-item" href="/supermercatoS">SuperMarket</a>
+      <a class="dropdown-items" href="/logout">Logout</a>
+    </div>
+
+    <div class="modal" id="myModal">
+      <span id="closeIcon" class="close-icon">&times;</span>
+      <form action="/save-product" method="POST">
+        <label for="productName">Product Name:</label>
+        <input type="text" id="productName" name="productName">
+        <input type="hidden" id="username" name="username">
+        <label for="productCategory">Category:</label>
+        <input type="text" id="productCategory" name="productCategory">
+        <label for="productPrice">Prices:</label>
+        <input type="text" id="productPrice" name="productPrice">
+        <label for="productDescription">Description:</label>
+        <textarea id="productDescription" name="productDescription"></textarea>
+        <button id="saveProductButton">Save Product</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/public/modal.js"></script>
+</body>
+
+</html>
