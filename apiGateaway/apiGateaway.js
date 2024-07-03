@@ -4,7 +4,7 @@ const cors = require('cors');
 const axios = require('axios');
 const usersMicroservice = require('./usersMicroservice/usersMicroservice');
 const supermarketsMicroservice = require('./supermarketsMicroservice/supermarketsMicroservice');
-
+//const sql = require('mssql');
 const app = express();
 const PORT = 8080;
 

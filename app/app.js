@@ -3,8 +3,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
-const sqlite3 = require('sqlite3').verbose();
-const bcrypt = require('bcrypt');
+//const sqlite3 = require('sqlite3').verbose();
+//const bcrypt = require('bcrypt');
 const { check, validationResult } = require('express-validator');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
@@ -23,6 +23,7 @@ app.use(cookieParser());
 app.use('/public', express.static(path.join(__dirname,  'public')));
 app.use(express.static('public'));
 app.use(bodyParser.json());
+app.use(express.json());
 app.use('/public/*.js', (req, res, next) => {
   res.type('application/javascript');
   next();
@@ -30,14 +31,15 @@ app.use('/public/*.js', (req, res, next) => {
 
 
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.header('Access-Control-Allow-Origin', 'http://51.8.41.63', 'http://localhost:3000');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   next();
 });
 app.use((req, res, next) => {
-  res.header('Content-Security-Policy', 'default-src http://localhost:3000 http://localhost:8080; style-src http://localhost:3000 \'unsafe-inline\'; script-src http://localhost:3000 \'unsafe-inline\' \'unsafe-eval\'');
+  res.header('Content-Security-Policy', "default-src 'self'; img-src http://51.8.41.63:3000 http://51.8.41.63; script-src http://51.8.41.63:3000 http://51.8.41.63 'unsafe-inline' 'unsafe-eval'; style-src http://51.8.41.63 'unsafe-inline'");
   next();
 });
+
 
 //implementazione del rate limiter!!!
 const registrationLimiter = rateLimit({
@@ -76,11 +78,11 @@ app.post('/login', registrationLimiter, (req, res) => {
   axios.post('http://apigateaway:8080/users/login', { username, password })
     .then(response => {
       if (response.status === 200) {
-        //const userId = response.data.userId;
-        const token = jwt.sign({ username }, secretKey, { expiresIn: '1h' });
+        const userId = response.data.userId;
+        const token = jwt.sign({ username, userId }, secretKey, { expiresIn: '1h' });
         // il token va nei cookie!!
         //console.log(token);
-        res.cookie('token', token, { httpOnly: false, secure: true });
+        res.cookie('token', token, { httpOnly: false, secure: false });
         const redirectUrl = response.data.redirect;
         res.redirect(redirectUrl);
       }
@@ -93,18 +95,24 @@ app.post('/login', registrationLimiter, (req, res) => {
 
 app.get('/welcome', authenticateToken, (req, res) => {
   const token = req.cookies['token'];
+  console.log("user-welcome - cookie token:", token);
 
   jwt.verify(token, secretKey, (err, decoded) => {
     if (err) {
       return res.status(401).json({ error: 'Token non valido' });
     }
 
+    console.log("useruser-welcome - token:", token);
+    console.log("user-welcome - decoded:", decoded);
+    console.log("user-welcome - userID:", decoded.userId);
+
+
     axios.get('http://apigateaway:8080/users/welcome', {
       headers: {
         Authorization: `Bearer ${token}`,
       },
       params: {
-        username: decoded.username,
+        supermarketId: decoded.userId, // Passiamo l'ID del supermercato come parametro
       },
     })
     .then(response => {
@@ -150,16 +158,24 @@ res.redirect('/');
 
 
 app.get('/register', (req, res) => {
-  axios.get('http://apigateaway:8080/users/register', { params: req.body })
+  axios.get('http://apigateaway:8080/users/register')
     .then(response => {
       res.status(response.status).send(response.data);
     })
     .catch(error => {
-      console.error(error);
-      res.status(500).send('Internal Server Error Login');
+      console.error('Errore Axios:', error);
+      if (error.response) {
+        console.error('Errore di risposta dal server:', error.response.data);
+        res.status(error.response.status).send('Errore di risposta dal server');
+      } else if (error.request) {
+        console.error('Nessuna risposta ricevuta:', error.request);
+        res.status(500).send('Nessuna risposta ricevuta dal server');
+      } else {
+        console.error('Errore durante la richiesta Axios:', error.message);
+        res.status(500).send('Errore durante la richiesta Axios');
+      }
     });
 });
-
 
 app.post('/register', registrationLimiter, async (req, res) => {
   try {
@@ -187,6 +203,8 @@ app.post('/register', registrationLimiter, async (req, res) => {
   }
 });
 
+///////
+
 app.get('/carrello', authenticateToken, (req, res) => {
   const token = req.cookies['token'];
 
@@ -205,64 +223,63 @@ app.get('/carrello', authenticateToken, (req, res) => {
     //console.log(username);
 });
 
-app.post('/carrello/svuota', (req, res) => {
-  const token = req.cookies['token'];
-  console.log("token", token);
+app.post('/carrello/svuota', async (req, res) => {
+  const token = req.cookies['token']; // Assumo che il token sia memorizzato nei cookies
+  console.log("svuota-carrello - cookie token:", token);
 
-  if (!token) {
-    return res.status(401).send('<p>Error: Token mancante</p>');
-  }
+  try {
+    // Verifica il token per ottenere l'userID
+    const decoded = jwt.verify(token, secretKey);
+    const userId = decoded.userId;
+    console.log("svuota-carrello - token:", token);
+    console.log("svuota-carrello - decoded:", decoded);
+    console.log("svuota-carrello - userID:", userId);
 
-  jwt.verify(token, secretKey, (err, decoded) => {
-    if (err) {
-      return res.status(401).json({ error: 'Token non valido' });
-    }
-
-    axios.post('http://apigateaway:8080/users/carrello/svuota', {
-      username: decoded.username,
+    // Invia la richiesta POST al server interno (apigateaway:8080)
+    const response = await axios.post('http://apigateaway:8080/users/carrello/svuota', {
+      userId: userId, // Passiamo l'ID dell'utente come parametro
     }, {
       headers: {
-        Authorization: `Bearer ${token}`,
-      }
-    })
-    .then(response => {
-      res.status(response.status).send(response.data);
-    })
-    .catch(error => {
-      console.error(error);
-      res.status(500).send('Errore durante la richiesta al microservizio');
+        Authorization: `Bearer ${token}`, // Assicurati di includere il token nell'header
+      },
     });
-  });
+
+    // Rispondi con lo stesso status code e dati ricevuti dalla risposta interna
+    res.status(response.status).send(response.data);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Errore durante la richiesta di svuotamento del carrello');
+  }
 });
 
-app.post('/carrello/pagamento', (req, res) => {
-  const token = req.cookies['token'];
-  console.log("token", token);
 
-  if (!token) {
-    return res.status(401).send('<p>Error: Token mancante</p>');
-  }
+app.post('/carrello/pagamento', async (req, res) => {
+  const token = req.cookies['token']; // Assumo che il token sia memorizzato nei cookies
+  console.log("pagamento-carrello - cookie token:", token);
 
-  jwt.verify(token, secretKey, (err, decoded) => {
-    if (err) {
-      return res.status(401).json({ error: 'Token non valido' });
-    }
+  try {
+    // Verifica il token per ottenere l'userID
+    const decoded = jwt.verify(token, secretKey);
+    const userId = decoded.userId;
+    console.log("pagamento-carrello - token:", token);
+    console.log("pagamento-carrello - decoded:", decoded);
+    console.log("pagamento-carrello - userID:", userId);
 
-    axios.post('http://apigateaway:8080/users/carrello/pagamento', {
-      username: decoded.username,
+    // Invia la richiesta POST al server interno (apigateaway:8080)
+    const response = await axios.post('http://apigateaway:8080/users/carrello/pagamento', {
+      userId: userId, // Passiamo l'ID dell'utente come parametro
     }, {
       headers: {
-        Authorization: `Bearer ${token}`,
-      }
-    })
-    .then(response => {
-      res.status(response.status).send(response.data);
-    })
-    .catch(error => {
-      console.error(error);
-      res.status(500).send('Errore durante la richiesta al microservizio pagamento');
+        Authorization: `Bearer ${token}`, // Assicurati di includere il token nell'header
+      },
     });
-  });
+
+    // Rispondi con lo stesso status code e dati ricevuti dalla risposta interna
+    res.status(response.status).send(response.data);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Errore durante la richiesta di svuotamento del carrello');
+  }
 });
 
 
@@ -306,12 +323,12 @@ app.get('/supermercato', authenticateToken, (req, res) => {
 app.post('/aggiungi-al-carrello', authenticateToken, (req, res) => {
   const token = req.cookies['token'];
   const productId = req.body.productId;
-  const productName = req.body.name;
-  //console.log(productId, productName);
+  const name = req.body.name;
+  console.log("consoapp", productId, name);
 
   axios.post(
     'http://apigateaway:8080/users/aggiungi-al-carrello',
-    { productId, productName }, 
+    { productId, name }, 
     {
       headers: {
         Authorization: `Bearer ${token}`
@@ -339,17 +356,23 @@ app.get('/login-supermarket', (req, res) => {
     });
 });
 
+
+
 app.post('/login-supermarket', (req, res) => {
   const { username, password } = req.body;
 
   axios.post('http://apigateaway:8080/supermarkets/login-supermarket', { username, password })
     .then(response => {
       if (response.status === 200) {
-        const token = jwt.sign({ username }, secretKey, { expiresIn: '1h' });
-        // il token va nei cookie!!
-        res.cookie('token', token, { httpOnly: false, secure: true });
+        // Assicurati di estrarre correttamente supermarketId dalla risposta
+        const supermarketId = response.data.supermarketId; // Verifica la struttura della risposta
+        console.log("Login-supermarket", supermarketId);
+        const token = jwt.sign({ username, supermarketId }, secretKey, { expiresIn: '1h' });
+        res.cookie('token', token, { httpOnly: false, secure: false });
         const redirectUrl = response.data.redirect;
         res.redirect(redirectUrl);
+      } else {
+        res.status(response.status).json({ error: 'Authentication Failed' });
       }
     })
     .catch(error => {
@@ -358,20 +381,27 @@ app.post('/login-supermarket', (req, res) => {
     });
 });
 
+
 app.get('/supermarket-welcome', authenticateToken, (req, res) => {
   const token = req.cookies['token'];
+  console.log("supermarket-welcome - cookie token:", token);
 
   jwt.verify(token, secretKey, (err, decoded) => {
     if (err) {
       return res.status(401).json({ error: 'Token non valido' });
     }
 
+    console.log("supermarket-welcome - token:", token);
+    console.log("supermarket-welcome - decoded:", decoded);
+    console.log("supermarket-welcome - supermarketId:", decoded.supermarketId);
+
+
     axios.get('http://apigateaway:8080/supermarkets/supermarket-welcome', {
       headers: {
         Authorization: `Bearer ${token}`,
       },
       params: {
-        username: decoded.username,
+        supermarketId: decoded.supermarketId, // Passiamo l'ID del supermercato come parametro
       },
     })
     .then(response => {
@@ -404,24 +434,22 @@ app.post('/register-supermarket', registrationLimiter, async (req, res) => {
     const response = await axios.post(registrationEndpoint, { username, password });
 
     if (response.status === 200) {
-      
       const redirectUrl = response.data.redirect;
       res.redirect(redirectUrl);
     } else {
-      
       if (response.data.errors && response.data.errors.length > 0) {
         res.status(400).json({ errors: response.data.errors });
       } else {
-        
         res.status(response.status).json(response.data);
       }
     }
   } catch (error) {
-    
     console.error(error);
     res.status(500).json({ error: 'Internal Server Error1' });
   }
 });
+
+
 
 app.get('/supermercatoS', (req, res) => {
   const token = req.cookies['token'];
@@ -450,62 +478,43 @@ app.get('/supermercatoS', (req, res) => {
 });
 
 
-
-app.get('/register-supermarket', (req, res) => {
-  axios.get('http://apigateaway:8080/supermarkets/register-supermarket')
-    .then(response => {
-      res.status(response.status).send(response.data);
-    })
-    .catch(error => {
-      console.error(error);
-      res.status(500).send('Internal Server Error');
-    });
-});
-
-
 //route miste che servono per i prodotti
 
 app.post('/save-product', async (req, res) => {
   try {
     const { productName, productCategory, productPrice, productDescription } = req.body;
-  
+
     // Estrai il token dai cookie
     const token = req.cookies['token'];
-    // Verifica il token per ottenere il payload, che include il nome utente
+
+    // Verifica il token per ottenere il payload, che include l'ID del supermercato
     const decodedToken = jwt.verify(token, secretKey);
-    // Ottieni il nome utente dal payload
-    const username = decodedToken.username;
-    console.log("save", username);
+    const supermarketId = decodedToken.supermarketId;
+
+    console.log("save", supermarketId);
 
     const productsMicroserviceEndpoint = 'http://apigateaway:8080/supermarkets/save-product';
-const response = await axios.post(
-  productsMicroserviceEndpoint,
-  {
-    productName,
-    productCategory,
-    productPrice,
-    productDescription,
-    username
-  },
-  {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  }
-);
+    const response = await axios.post(
+      productsMicroserviceEndpoint,
+      {
+        productName,
+        productCategory,
+        productPrice,
+        productDescription,
+        supermarketId  // Invia l'ID del supermercato al microservizio
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
 
-    if (response.status === 200) {
-      
-      const userId = response.data.userId; 
-      const token = jwt.sign({ username }, secretKey, { expiresIn: '1h' });
-      //console.log(token);
-      res.cookie('token', token, { httpOnly: false, secure: true }); 
-      const redirectUrl = response.data.redirect;
-      res.redirect(redirectUrl);
-    }
+    console.log('Risposta dal microservizio:', response.data);
+    res.status(200).json({ message: 'Prodotto salvato con successo!' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('Errore durante il salvataggio del prodotto:', error);
+    res.status(500).json({ error: 'Errore durante il salvataggio del prodotto' });
   }
 });
 
@@ -541,29 +550,30 @@ app.get('/get-products-user', authenticateToken, (req, res) => {
 
 app.get('/get-products', authenticateToken, (req, res) => {
   const token = req.cookies['token'];
-  console.log("tkPordcc", token);
 
   jwt.verify(token, secretKey, (err, decoded) => {
     if (err) {
       return res.status(401).json({ error: 'Token non valido' });
     }
 
-    console.log("Username decodificato:", decoded.username); //dice undefined
+    const supermarketId = decoded.supermarketId; // Corrected from decodedToken
+    const username = decoded.username;
 
     axios.get('http://apigateaway:8080/supermarkets/get-products', {
       headers: {
         Authorization: `Bearer ${token}`,
       },
       params: {
-        username: decoded.username,
+        supermarketId: supermarketId, // Corrected parameter name
+        username: username,
       },
     })
     .then(response => {
       res.status(response.status).send(response.data);
     })
     .catch(error => {
-      console.error(error);
-      res.status(500).send('Non funziona amen');
+      console.error('Error fetching products:', error);
+      res.status(500).send('Errore durante il recupero dei prodotti');
     });
   });
 });

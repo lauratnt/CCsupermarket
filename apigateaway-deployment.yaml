@@ -4,7 +4,6 @@ metadata:
   annotations:
     kompose.cmd: C:\Users\laury\AppData\Local\Microsoft\WinGet\Packages\Kubernetes.kompose_Microsoft.Winget.Source_8wekyb3d8bbwe\kompose.exe convert -f docker-compose.yml
     kompose.version: 1.31.2 (a92241f79)
-  creationTimestamp: null
   labels:
     io.kompose.service: apigateaway
   name: apigateaway
@@ -13,22 +12,28 @@ spec:
   selector:
     matchLabels:
       io.kompose.service: apigateaway
-  strategy: {}
   template:
     metadata:
       annotations:
         kompose.cmd: C:\Users\laury\AppData\Local\Microsoft\WinGet\Packages\Kubernetes.kompose_Microsoft.Winget.Source_8wekyb3d8bbwe\kompose.exe convert -f docker-compose.yml
         kompose.version: 1.31.2 (a92241f79)
-      creationTimestamp: null
       labels:
         io.kompose.network/cc-supermarket-master-mynetwork: "true"
         io.kompose.service: apigateaway
     spec:
       containers:
-        - image: lauratdnt/cc:1.0
-          name: apigateaway
+        - name: apigateaway
+          image: lauratdnt/cc:1.0
           ports:
             - containerPort: 8080
-          resources: {}
-      restartPolicy: Always
+          env:
+            - name: DB_USER
+              value: "laura"
+            - name: DB_PASSWORD
+              value: "Sistemicloud@"
+            - name: DB_SERVER
+              value: "marketapp.database.windows.net"
+            - name: DB_DATABASE
+              value: "aiutateci"
+          imagePullPolicy: Always
 status: {}

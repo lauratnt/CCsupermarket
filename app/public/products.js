@@ -44,11 +44,11 @@ function insertProducts(products) {
       
     });
 
-    card.appendChild(image);
+    //card.appendChild(image);
     card.appendChild(name);
     card.appendChild(productId);
     card.appendChild(price);
-    card.appendChild(supermarketName);
+   // card.appendChild(supermarketName);
     card.appendChild(addToCartButton);
 
 
@@ -85,7 +85,7 @@ function addToCart(productId, name, callback) {
  
   //console.log(token);
   if (token) {
-    fetch('http://localhost:3000/aggiungi-al-carrello', {
+    fetch('http://51.8.41.63:3000/aggiungi-al-carrello', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

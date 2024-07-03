@@ -4,10 +4,74 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Register Page</title>
-  <link rel="stylesheet" type="text/css" href="/public/STYLE/style-login.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #EEE9D5;
+      color: #fff;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    
+    .container {
+      background-color: #547036;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+      width: 300px;
+    }
+    
+    h2 {
+      text-align: center;
+      color: #1E2A11;
+    }
+    
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    
+    label {
+      margin: 10px 0;
+      font-weight: bold;
+    }
+    
+    input {
+      padding: 8px;
+      margin-bottom: 15px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    
+    input[type="submit"] {
+      background-color: #758B52;
+      color: white;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      padding: 10px;
+      font-size: 16px;
+    }
+    
+    input[type="submit"]:hover {
+      background-color: #758B52;
+    }
+    
+    p {
+      color: black;
+    }
+
+    a {
+      color: #EEE9D5;
+    }
+  </style>
 
   <script src="/public/register.js" type="module"></script>
-
 </head>
 <body>
   <div class="container">
@@ -30,10 +94,10 @@
     <div id="errorModal" style="display: none; border: 1px solid #ccc; padding: 10px;">
       <h3>Error</h3>
       <p id="errorMessage"></p>
-      <button id="closeModalButton"></button> <script src="/public/closeErrorModal.js" type="module"></script>
-        >Close</button>
+      <button id="closeModalButton">Close</button>
     </div>
 
+    <script src="/public/closeErrorModal.js" type="module"></script>
   </div>
 </body>
 </html>

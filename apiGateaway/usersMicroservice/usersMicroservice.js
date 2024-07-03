@@ -1,7 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const session = require('express-session');
-const sqlite3 = require('sqlite3').verbose();
+//const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
@@ -14,83 +14,108 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({ secret: 'uominiseksi', resave: true, saveUninitialized: true }));
 const jwt = require('jsonwebtoken');
 const { createSecretKey } = require('crypto');
-
-
-const dbFilePath = path.join(__dirname, 'users.db');
-
-const db = new sqlite3.Database(dbFilePath);
-const dbFolderPath = path.dirname(dbFilePath);
-const usersDbPath = dbFilePath;
+const sql = require('mssql'); 
 const secretKey = 'uominiseksi';
+const cookieParser = require('cookie-parser');
+
+app.use(cookieParser());
+app.use(express.json());
 
 
 const router = express.Router();
+router.use(cookieParser());
+router.use(express.json());
+
+// Configurazione della connessione al database
+const config = {
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  server: process.env.DB_SERVER,
+  database: process.env.DB_DATABASE,
+  port: 1433,
+  options: {
+    encrypt: true,
+    trustServerCertificate: false
+  }
+};
+
+
+let pool;
+
+async function connectToDb() {
+  try {
+    pool = await sql.connect(config);
+    console.log('Connessione al database riuscita');
+  } catch (err) {
+    console.error('Errore durante la connessione al database:', err);
+    // Gestisci l'errore in base alle tue esigenze
+  }
+}
+
+connectToDb(); 
+
+
 
 app.use('/public', express.static(path.join(__dirname,  'public')));
 
 
-
-const initDb = () => {
-  const initDbScript = fs.readFileSync(path.join(__dirname, 'db', 'init-db.sql'), 'utf8');
-
-  db.run(initDbScript, function (err) {
-    if (err) {
-      console.error('Error initializing database:', err);
-    } else {
-      console.log('Database initialized successfully.');
-    }
-  });
-};
-
-initDb();
-
-
-
-
 router.get('/login', (req, res) => {
-  const filePath = path.join(__dirname,  'HTML', 'index.html');
-  res.sendFile(filePath, (err) => {
+  const filePath = path.join(__dirname, 'HTML', 'index.html');
+  fs.readFile(filePath, 'utf8', (err, data) => {
     if (err) {
       console.error(err);
       res.status(500).send('Internal Server Error');
     } else {
+      console.log('Sending registration form');
+      res.status(200).send(data);
     }
   });
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
-  const query = 'SELECT * FROM users WHERE username = ?';
+  try {
+    const query = 'SELECT * FROM [user] WHERE username = @username AND dipendente = 0';
+    const poolRequest = pool.request();
+    poolRequest.input('username', sql.VarChar, username);
 
-  db.get(query, [username], (err, row) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).send('Internal Server Error');
-    }
+    const result = await poolRequest.query(query);
+    const user = result.recordset[0];
 
-    if (!row) {
+    if (!user) {
       return res.status(401).send('Authentication Failed: User not found');
     }
 
-    bcrypt.compare(password, row.password, (bcryptErr, bcryptResult) => {
-      if (bcryptErr) {
-        console.error(bcryptErr);
-        return res.status(500).send('Internal Server Error');
-      }
+  bcrypt.compare(password, user.password, (bcryptErr, bcryptResult) => {
+  if (bcryptErr) {
+    console.error('Error during bcrypt comparison:', bcryptErr);
+    return res.status(500).send('Internal Server Error');
+  }
 
-      if (bcryptResult) {
-        const userId = row.id;
-        const username = req.body.username;
-        //const token = jwt.sign({ userId }, secretKey, { expiresIn: '1h' });
-        //console.log(token);
-        res.status(200).json({ message: 'Login successful', redirect: '/welcome', username });
-      } else {
-        res.status(401).send('Authentication Failed');
-      }
+  if (bcryptResult) {
+    const token = jwt.sign({ username, userId: user.id }, secretKey, { expiresIn: '1h' });
+    console.log("login - username:", username);
+    console.log("login - user:", user.id);
+    console.log("token: ", token);
+    res.cookie('token', token, { httpOnly: true });
+     res.status(200).json({ 
+      message: 'Login successful', 
+      redirect: '/welcome', 
+      username, 
+      userId: user.id 
     });
-  });
+  } else {
+    res.status(401).send('Authentication Failed');
+  }
 });
+
+} catch (err) {
+console.error('Error during supermarket login:', err);
+res.status(500).send('Internal Server Error');
+}
+});
+
 
 router.get('/register', (req, res) => {
   const filePath = path.join(__dirname, 'HTML', 'register.html');
@@ -110,7 +135,7 @@ router.post('/register', [
     .notEmpty().withMessage('Password is required')
     .isLength({ min: 5 }).withMessage('Password must be at least 5 characters')
     .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter'),
-], (req, res) => {
+], async (req, res) => {
   try {
     const errors = validationResult(req);
 
@@ -120,37 +145,41 @@ router.post('/register', [
 
     const { username, password } = req.body;
 
-    const checkUserQuery = 'SELECT * FROM users WHERE username = ?';
+    // Verifica se l'utente esiste già nel database
+    const checkUserQuery = 'SELECT * FROM [user] WHERE username = @username';
 
-    db.get(checkUserQuery, [username], (err, existingUser) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).send('Internal Server Error');
-      } else if (existingUser) {
-        return res.status(400).send('Username already exists');
-      } else {
-        const insertUserQuery = 'INSERT INTO users (username, password) VALUES (?, ?)';
-        const hash = bcrypt.hashSync(password, 10);
+    const poolRequest = pool.request();
+    poolRequest.input('username', sql.VarChar, username);
 
-        db.run(insertUserQuery, [username, hash], insertErr => {
-          if (insertErr) {
-            console.error(insertErr);
-            return res.status(500).send('Internal Server Error');
-          } else {
-            const redirectUrl = '/login';
-            res.status(200).json({ message: 'Registration successful', redirect: redirectUrl });
-          }
-        });
-      }
-    });
-  } catch (error) {
-    console.error(error);
+    const result = await poolRequest.query(checkUserQuery);
+    const existingUser = result.recordset[0];
+
+    if (existingUser) {
+      return res.status(400).send('Username already exists');
+    }
+
+    // Se l'utente non esiste, procedi con l'inserimento nel database
+    const insertUserQuery = 'INSERT INTO [user] (username, password, dipendente) VALUES (@username, @password, 0)';
+    const hashedPassword = bcrypt.hashSync(password, 10);
+
+    const insertRequest = pool.request();
+    insertRequest.input('username', sql.VarChar, username);
+    insertRequest.input('password', sql.VarChar, hashedPassword);
+
+    const insertResult = await insertRequest.query(insertUserQuery);
+    console.log(`Inserted user: ${username}`);
+
+    const redirectUrl = '/login';
+    res.status(200).json({ message: 'Registration successful', redirect: redirectUrl });
+
+  } catch (err) {
+    console.error('Error during registration:', err);
     res.status(500).send('Internal Server Error');
   }
 });
 
+
 router.get('/welcome', (req, res) => {
-  const { username } = req.query;
   const token = req.header('Authorization');
 
   if (!token) {
@@ -182,182 +211,169 @@ router.get('/welcome', (req, res) => {
   });
 });
 
-router.get('/carrello', (req, res) => {
+router.get('/carrello', async (req, res) => {
   const token = req.header('Authorization');
 
   if (!token) {
     return res.status(401).send('<p>Error: Token mancante</p>');
   }
 
-  jwt.verify(token.split(' ')[1], secretKey, (err, decoded) => {
-    if (err) {
-      return res.status(401).send('<p>Error: Token non valido</p>');
-    }
+  try {
+    const decoded = jwt.verify(token.split(' ')[1], secretKey);
+    const userId = decoded.userId;
+    console.log("Id carrello", decoded.userId);
 
-    const userId = decoded.username;
-    const query = 'SELECT * FROM user_cart WHERE user_username = ?';
+    const query = `
+      SELECT external_product_id, quantity, productName
+      FROM user_cart
+      WHERE user_id = @userId
+    `;
 
-    db.all(query, [userId], (dbErr, rows) => {
-      if (dbErr) {
-        console.error(dbErr);
-        return res.status(500).send('<p>Error: Internal Server Error!!!</p>');
-      }
+    const poolRequest = pool.request();
+    poolRequest.input('userId', sql.Int, userId);
 
-      const userMessage = `Welcome to the cart, ${userId || 'Visitatore'}!`;
-      const productListHTML = generateProductListHTML(rows);
+    const result = await poolRequest.query(query);
+    const rows = result.recordset;
 
-      const html = `
+    const userMessage = `Welcome to your cart!`;
+    const productListHTML = generateProductListHTML(rows);
+
+    const html = `
       <html>
       <head>
-      <style>
-      body {
-        font-family: Arial, sans-serif;
-        background-color: #DFD5A5;
-      }
-      
-      #cartContainer {
-        border: 1px solid #ccc;
-        padding: 10px;
-        margin: 20px;
-        background-color: #fff;
-      }
-      
-      .product {
-        border-bottom: 1px solid #eee;
-        padding: 10px;
-        margin-bottom: 10px;
-        background-color: #fff; 
-        color: #000; 
-        border-radius: 8px; 
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-      }
-      
-      div {
-        color: #000;
-        font-size: 20px;
-        text-align: center;
-        padding: 10px; 
-        margin-bottom: 20px;
-        border-radius: 8px; 
-        font-family: "Times New Roman", Times, serif;
-      }
-      
-      #userMessage {
-        color: #000;
-        font-size: 30px;
-        text-align: center;
-        padding: 10px; 
-        margin-bottom: 20px;
-        border-radius: 8px; 
-        font-family: "Times New Roman", Times, serif;
-      }
-      
-      button, .button {
-        margin-top: 20px;
-        padding: 10px 20px;
-        font-size: 16px;
-        color: #fff;
-        border: none;
-        cursor: pointer;
-        transition: background-color 0.3s;
-        width: 100%;
-        outline: none;
-      }
-      
-      button:hover, .button:hover {
-        background-color: #FF9897;
-      }
-      
-      .button-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        margin-top: 20px;
-      }
-      
-      .link-buttons, .form-buttons {
-        display: flex;
-        justify-content: space-around;
-        width: 100%;
-        margin-top: 10px;
-      }
-      
-      .link-buttons a {
-        text-decoration: none;
-        padding: 10px 20px;
-        border-radius: 5px;
-        transition: background-color 0.3s;
-      }
-      
-      .link-buttons .welcome {
-        background-color: #F4AA15;
-      }
-      
-      .link-buttons .supermercato {
-        background-color: #547035;
-      }
-      
-      .link-buttons .logout {
-        background-color: #CC4A18;
-      }
-      
-      .link-buttons a:hover {
-        background-color: #FFD700; /* Cambia il colore al passaggio del mouse */
-      }
-      
-      .form-buttons button {
-        border: none;
-        color: #fff;
-        padding: 10px 20px;
-        border-radius: 5px;
-        cursor: pointer;
-        transition: background-color 0.3s;
-        width: 100%; /* Fai sì che il pulsante occupi tutta la larghezza */
-        display: block; /* Assicurati che il pulsante sia visualizzato come blocco */
-        margin-top: 10px; /* Aggiungi un margine superiore per separare i pulsanti */
-      }
-      
-      
-      .form-buttons .svuota-carrello {
-        background-color: #5D2CA2;
-      }
-      
-      .form-buttons .pagamento {
-        background-color: #00416A;
-      }
-      
-      .form-buttons button:hover {
-        background-color: #6B8E23; /* Cambia il colore al passaggio del mouse */
-      }
-      
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background-color: #DFD5A5;
+          }
+          #cartContainer {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 20px;
+            background-color: #fff;
+          }
+          .product {
+            border-bottom: 1px solid #eee;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #fff;
+            color: #000;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+          }
+          div {
+            color: #000;
+            font-size: 20px;
+            text-align: center;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            font-family: "Times New Roman", Times, serif;
+          }
+          #userMessage {
+            color: #000;
+            font-size: 30px;
+            text-align: center;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            font-family: "Times New Roman", Times, serif;
+          }
+          button, .button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%;
+            outline: none;
+          }
+          button:hover, .button:hover {
+            background-color: #FF9897;
+          }
+          .button-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+          }
+          .link-buttons, .form-buttons {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            margin-top: 10px;
+          }
+          .link-buttons a {
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+          }
+          .link-buttons .welcome {
+            background-color: #F4AA15;
+          }
+          .link-buttons .supermercato {
+            background-color: #547035;
+          }
+          .link-buttons .logout {
+            background-color: #CC4A18;
+          }
+          .link-buttons a:hover {
+            background-color: #FFD700; /* Cambia il colore al passaggio del mouse */
+          }
+          .form-buttons button {
+            border: none;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%; /* Fai sì che il pulsante occupi tutta la larghezza */
+            display: block; /* Assicurati che il pulsante sia visualizzato come blocco */
+            margin-top: 10px; /* Aggiungi un margine superiore per separare i pulsanti */
+          }
+          .form-buttons .svuota-carrello {
+            background-color: #5D2CA2;
+          }
+          .form-buttons .pagamento {
+            background-color: #00416A;
+          }
+          .form-buttons button:hover {
+            background-color: #6B8E23; /* Cambia il colore al passaggio del mouse */
+          }
         </style>
       </head>
       <body>
-      <div>${userMessage}</div>
-      <div class="button-container">
-      <div class="link-buttons">
-        <a class="button welcome" href="/welcome">Go Back</a>
-        <a class="button supermercato" href="/supermercato">SuperMarket</a>
-        <a class="button logout" href="logout">Logout</a>
-      </div>
-      <div class="form-buttons">
-        <form action="/carrello/pagamento" method="POST">
-          <button class="button svuota-carrello" type="submit">Pagamento</button>
-        </form>
-        <form action="/carrello/svuota" method="POST">
-          <button class="button pagamento" type="submit">Svuota Carrello</button>
-        </form>
-      </div>
-    </div>
+        <div>${userMessage}</div>
+        <div class="button-container">
+          <div class="link-buttons">
+            <a class="button welcome" href="/welcome">Go Back</a>
+            <a class="button supermercato" href="/supermercato">SuperMarket</a>
+            <a class="button logout" href="logout">Logout</a>
+          </div>
+          <div class="form-buttons">
+            <form action="/carrello/pagamento" method="POST">
+              <button class="button svuota-carrello" type="submit">Pagamento</button>
+            </form>
+            <form action="/carrello/svuota" method="POST">
+              <button class="button pagamento" type="submit">Svuota Carrello</button>
+            </form>
+          </div>
+        </div>
         ${productListHTML}
       </body>
-    </html>
+      </html>
     `;
-        
-      res.status(200).send(html);
-    });
-  });
+
+    res.status(200).send(html);
+  } catch (err) {
+    console.error('Error retrieving user cart:', err);
+    res.status(500).send('<p>Error: Internal Server Error!!!</p>');
+  }
 });
+
 
 function generateProductListHTML(products) {
   let html = '<div id="cartContainer">';
@@ -381,16 +397,20 @@ function generateProductListHTML(products) {
 }
 
 
-router.post('/carrello/svuota', (req, res) => {
-  const username = req.body.username;
+router.post('/carrello/svuota', async (req, res) => {
+  const userId = req.body.userId;
+  
+  try {
+    console.log('UserID da eliminare:', userId); // Verifica il valore di userId
 
-  const query = 'DELETE FROM user_cart WHERE user_username = ?';
+    const query = 'DELETE FROM [user_cart] WHERE user_id = @userId';
 
-  db.run(query, [username], (dbErr) => {
-    if (dbErr) {
-      console.error(dbErr);
-      return res.status(500).send('Errore durante la cancellazione del carrello');
-    }
+    const poolRequest = pool.request();
+    poolRequest.input('userId', sql.Int, userId);
+
+    const result = await poolRequest.query(query);
+    console.log('Numero di righe eliminate:', result.rowsAffected); // Verifica quante righe sono state eliminate
+
 
     const modalHTML = `
       <div id="modal" class="modal">
@@ -484,19 +504,27 @@ router.post('/carrello/svuota', (req, res) => {
   `;
 
     res.status(200).send(htmlResponse);
-  });
+  } catch (err) {
+    console.error('Errore durante la cancellazione del carrello:', err);
+    res.status(500).send('Errore durante la cancellazione del carrello');
+  }
 });
 
-router.post('/carrello/pagamento', (req, res) => {
-  const username = req.body.username;
 
-  const query = 'DELETE FROM user_cart WHERE user_username = ?';
+router.post('/carrello/pagamento', async (req, res) => {
+  const userId = req.body.userId;
+  
+  try {
+    console.log('UserID da eliminare:', userId); // Verifica il valore di userId
 
-  db.run(query, [username], (dbErr) => {
-    if (dbErr) {
-      console.error(dbErr);
-      return res.status(500).send('Errore durante il processamento del pagamento');
-    }
+    const query = 'DELETE FROM [user_cart] WHERE user_id = @userId';
+
+    const poolRequest = pool.request();
+    poolRequest.input('userId', sql.Int, userId);
+
+    const result = await poolRequest.query(query);
+    console.log('Numero di righe eliminate:', result.rowsAffected); // Verifica quante righe sono state eliminate
+
 
     const paymentOptionsHTML = `
       <div id="paymentOptions">
@@ -618,38 +646,49 @@ router.post('/carrello/pagamento', (req, res) => {
     `;
 
     res.status(200).send(htmlResponse);
-  });
+  } catch (err) {
+    console.error('Errore durante la cancellazione del carrello:', err);
+    res.status(500).send('Errore durante la cancellazione del carrello');
+  }
 });
 
 
 
 
-router.post('/aggiungi-al-carrello', (req, res)=>{
+
+router.post('/aggiungi-al-carrello', async (req, res) => {
   const token = req.header('Authorization');
 
   if (!token) {
     return res.status(401).send('Token mancante');
   }
 
-  jwt.verify(token.split(' ')[1], secretKey, (err, decoded) => {
-    if (err) {
-      return res.status(401).send('Token non valido');
-    }
-  const userId = decoded.username; 
-  const productId = req.body.productId; 
-  const productName = req.body.productName;
-  //console.log(userId, "\n", productId, "\n", productName);
+  try {
+    const decoded = jwt.verify(token.split(' ')[1], secretKey);
+    const userId = decoded.userId; // Utilizza userId invece di username
+    const { productId, name } = req.body;
+    console.log("prodcutNAME", name);
 
-    db.run('INSERT INTO user_cart (user_username, external_product_id, quantity, productName) VALUES (?, ?, 1, ?)', [userId, productId, productName], function(err) {
-      if (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Errore durante l\'aggiunta al carrello' });
-      } else {
-        res.status(200).json({ message: 'Prodotto aggiunto al carrello con successo' });
-      }
-    });
-  });
+    const pool = await sql.connect(config);
+    const request = pool.request();
 
+    // Esegui l'inserimento nel database
+    const query = `
+      INSERT INTO user_cart (user_id, external_product_id, quantity, productName)
+      VALUES (@userId, @productId, 1, @name)
+    `;
+
+    request.input('userId', sql.Int, userId);
+    request.input('productId', sql.Int, productId);
+    request.input('name', sql.NVarChar, name);
+
+    const result = await request.query(query);
+
+    res.status(200).json({ message: 'Prodotto aggiunto al carrello con successo' });
+  } catch (err) {
+    console.error('Errore durante l\'aggiunta al carrello:', err);
+    res.status(500).json({ error: 'Errore durante l\'aggiunta al carrello' });
+  }
 });
 
 router.get('/supermercato', (req, res) => {

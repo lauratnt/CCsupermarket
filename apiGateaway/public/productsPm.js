@@ -38,7 +38,7 @@ function insertProducts(products, username) {
     addToCartButton.textContent = '';
 
     const supermarketNameElement = document.createElement('p');
-    supermarketNameElement.textContent = `Nome Supermercato: ${product.supermarket_name}`;
+    supermarketNameElement.textContent = '';
 
     addToCartButton.addEventListener('click', () => {
       let cart = JSON.parse(localStorage.getItem('cart')) || [];

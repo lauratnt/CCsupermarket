@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-apigate-ingress
+  namespace: default
+spec:
+  rules:
+  - host: #supermarket.com  # Sostituisci con il tuo hostname
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app
+            port:
+              number: 3000
+      - path: /users/login
+        pathType: Prefix
+        backend:
+          service:
+            name: apigateaway
+            port:
+              number: 8080
+

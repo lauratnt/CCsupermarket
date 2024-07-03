@@ -1,4 +1,4 @@
-const fs = require('fs');
+/*const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
@@ -33,4 +33,4 @@ db.exec(initSupermarketsScript, function (err) {
       db.close();
     });
   }
-});
+});*/
