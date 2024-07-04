@@ -25,3 +25,9 @@ jobs:
         docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/cc:1.0 .
         echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
         docker push ${{ secrets.DOCKERHUB_USERNAME }}/cc:1.0
+
+ - name: Apply Kubernetes manifests and restart deployments
+      run: |
+        kubectl apply -f .
+        kubectl rollout restart deployment.apps/apigateaway
+        kubectl rollout restart deployment.apps/app
