@@ -1,0 +1,27 @@
+name: Build and Push Docker Images
+
+on: [push]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    # Step 1: Build and push Docker image from the first directory
+    - name: Build and push Docker image from first directory
+      run: |
+        cd app
+        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/cc:latest .
+        echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/cc:latest
+
+    # Step 2: Build and push Docker image from the second directory
+    - name: Build and push Docker image from second directory
+      run: |
+        cd apiGateaway
+        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/cc:1.0 .
+        echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/cc:1.0
